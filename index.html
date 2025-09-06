@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Food Delivery MVP</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, Arial, sans-serif; background:#0b0f14; color:#e6e9ee; }
+    header { position: sticky; top:0; background:#0f141b; border-bottom:1px solid #1f2833; padding:12px 16px; display:flex; gap:16px; align-items:center; z-index:10;}
+    .brand { font-weight: 800; letter-spacing: .5px; }
+    .container { max-width: 1050px; margin: 18px auto; padding: 0 16px; }
+    .grid { display: grid; grid-template-columns: 1fr 340px; gap: 16px; }
+    .card { background:#111822; border:1px solid #1f2833; border-radius: 16px; padding: 16px; }
+    .row { display:flex; gap:12px; align-items:center; flex-wrap: wrap; }
+    .restaurants { display:grid; grid-template-columns: repeat(auto-fill,minmax(250px,1fr)); gap:12px; }
+    .btn { padding: 8px 12px; border-radius: 10px; border:1px solid #2a3543; background:#162130; color:#e6e9ee; cursor:pointer; }
+    .btn:hover { filter: brightness(1.1); }
+    .muted { color:#a7b0bd; }
+    input, textarea { width:100%; background:#0f141b; color:#e6e9ee; border:1px solid #2a3543; border-radius:10px; padding:8px 10px; }
+    .qty { display:flex; gap:8px; align-items:center; }
+    .pill { background:#0f141b; border:1px solid #2a3543; padding:2px 8px; border-radius:999px; }
+    .tag { font-size: 12px; }
+    .price { font-weight:700; }
+    a { color: #8ab4ff; text-decoration: none; }
+    footer { text-align:center; color:#7f8897; padding: 20px; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">🍕 SwiftEats</div>
+    <div class="muted">Browse • Cart • Checkout</div>
+    <div style="margin-left:auto" class="muted" id="orderStatus"></div>
+  </header>
+
+  <div class="container grid">
+    <!-- Left: Restaurants & Menu -->
+    <div class="card">
+      <div class="row" style="justify-content: space-between;">
+        <h2 style="margin:0">Restaurants</h2>
+        <button class="btn" id="reload">Reload</button>
+      </div>
+      <div id="restaurants" class="restaurants" style="margin-top:10px;"></div>
+
+      <div id="menuArea" class="card" style="margin-top:16px; display:none;">
+        <div class="row" style="justify-content: space-between;">
+          <h3 id="menuTitle" style="margin:0;"></h3>
+          <span id="menuMeta" class="muted"></span>
+        </div>
+        <div id="menuItems" style="margin-top:10px; display:grid; gap:10px;"></div>
+      </div>
+    </div>
+
+    <!-- Right: Cart & Checkout -->
+    <div class="card">
+      <h2 style="margin-top:0;">Your Cart</h2>
+      <div id="cartList" class="muted">No items yet.</div>
+      <div class="row" style="justify-content: space-between; margin-top:12px;">
+        <strong>Total: ₹<span id="total">0</span></strong>
+        <button class="btn" id="clearCart">Clear</button>
+      </div>
+      <div style="margin-top:16px;">
+        <label class="muted">Delivery Address</label>
+        <textarea id="address" rows="3" placeholder="Flat / Street / City"></textarea>
+      </div>
+      <button class="btn" id="checkout" style="margin-top:12px; width:100%;">Place Order</button>
+      <div id="checkoutResult" class="muted" style="margin-top:10px;"></div>
+    </div>
+  </div>
+
+  <footer>Built with ❤️ Express + vanilla JS • <a href="https://localhost">demo</a></footer>
+
+  <script>
+    const $ = sel => document.querySelector(sel);
+    const restaurantsEl = $("#restaurants");
+    const menuArea = $("#menuArea");
+    const menuTitle = $("#menuTitle");
+    const menuMeta = $("#menuMeta");
+    const menuItems = $("#menuItems");
+    const cartList = $("#cartList");
+    const totalEl = $("#total");
+    const addressEl = $("#address");
+    const orderStatus = $("#orderStatus");
+    const checkoutResult = $("#checkoutResult");
+
+    let cart = []; // {menuId, name, price, qty}
+
+    function renderCart() {
+      if (cart.length === 0) {
+        cartList.textContent = "No items yet.";
+        totalEl.textContent = "0";
+        return;
+      }
+      cartList.innerHTML = cart.map(item => `
+        <div class="row" style="justify-content: space-between;">
+          <div>
+            <div>${item.name}</div>
+            <div class="muted">₹${item.price} × ${item.qty}</div>
+          </div>
+          <div class="qty">
+            <button class="btn" data-act="dec" data-id="${item.menuId}">−</button>
+            <span class="pill">${item.qty}</span>
+            <button class="btn" data-act="inc" data-id="${item.menuId}">+</button>
+            <button class="btn" data-act="rm" data-id="${item.menuId}">✕</button>
+          </div>
+        </div>
+      `).join("");
+      const total = cart.reduce((s,i)=> s + i.price * i.qty, 0);
+      totalEl.textContent = total;
+    }
+
+    cartList.addEventListener("click", (e) => {
+      const btn = e.target.closest("button");
+      if (!btn) return;
+      const id = btn.dataset.id;
+      const act = btn.dataset.act;
+      const idx = cart.findIndex(i => i.menuId === id);
+      if (idx === -1) return;
+      if (act === "inc") cart[idx].qty++;
+      if (act === "dec") cart[idx].qty = Math.max(1, cart[idx].qty - 1);
+      if (act === "rm") cart.splice(idx, 1);
+      renderCart();
+    });
+
+    async function loadRestaurants() {
+      const res = await fetch("/api/restaurants");
+      const data = await res.json();
+      restaurantsEl.innerHTML = data.map(r => `
+        <div class="card">
+          <div class="row" style="justify-content: space-between;">
+            <div>
+              <div style="font-weight:700">${r.name}</div>
+              <div class="muted">${r.cuisine} • ⭐ ${r.rating} • ${r.etaMins}m</div>
+            </div>
+            <button class="btn" data-id="${r.id}">View Menu</button>
+          </div>
+        </div>
+      `).join("");
+    }
+
+    restaurantsEl.addEventListener("click", async (e) => {
+      const btn = e.target.closest("button[data-id]");
+      if (!btn) return;
+      const id = btn.dataset.id;
+      const res = await fetch(`/api/restaurants/${id}`);
+      const r = await res.json();
+      menuTitle.textContent = r.name;
+      menuMeta.textContent = `${r.cuisine} • ⭐ ${r.rating} • ETA ${r.etaMins}m`;
+      menuItems.innerHTML = r.menu.map(m => `
+        <div class="row card" style="align-items:center; justify-content: space-between;">
+          <div>
+            <div style="font-weight:600">${m.name}</div>
+            <div class="row"><span class="price">₹${m.price}</span><span class="pill tag">#${m.id}</span></div>
+          </div>
+          <button class="btn" data-menu='${JSON.stringify(m)}'>Add</button>
+        </div>
+      `).join("");
+      menuArea.style.display = "block";
+    });
+
+    menuItems.addEventListener("click", (e) => {
+      const btn = e.target.closest("button[data-menu]");
+      if (!btn) return;
+      const m = JSON.parse(btn.dataset.menu);
+      const existing = cart.find(i => i.menuId === m.id);
+      if (existing) existing.qty++;
+      else cart.push({ menuId: m.id, name: m.name, price: m.price, qty: 1 });
+      renderCart();
+    });
+
+    $("#clearCart").addEventListener("click", () => { cart = []; renderCart(); });
+
+    $("#reload").addEventListener("click", loadRestaurants);
+
+    $("#checkout").addEventListener("click", async () => {
+      if (cart.length === 0) return alert("Cart is empty!");
+      const payload = {
+        items: cart.map(i => ({ menuId: i.menuId, qty: i.qty })),
+        address: addressEl.value.trim()
+      };
+      const res = await fetch("/api/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (res.ok) {
+        checkoutResult.textContent = `✅ Order #${data.id} placed • Total ₹${data.total}`;
+        orderStatus.textContent = `Order ${data.id}: ${data.status}`;
+        cart = [];
+        renderCart();
+      } else {
+        checkoutResult.textContent = `❌ ${data.error || "Order failed"}`;
+      }
+    });
+
+    loadRestaurants();
+  </script>
+</body>
+</html>
